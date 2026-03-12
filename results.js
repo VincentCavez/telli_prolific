@@ -1,6 +1,11 @@
 /**
- * DataCollector — handles sending response data to the server endpoint
- * with localStorage fallback for failed requests.
+ * DataCollector — sends response data to Google Apps Script endpoint
+ * using navigator.sendBeacon() to bypass CORS entirely.
+ * Falls back to localStorage if sendBeacon fails.
+ *
+ * sendBeacon sends a POST with Content-Type: text/plain, no preflight,
+ * and the body reaches doPost(e) via e.postData.contents before the
+ * Apps Script 302 redirect.
  */
 const DataCollector = {
     endpoint: null,
@@ -9,12 +14,7 @@ const DataCollector = {
         this.endpoint = endpoint;
     },
 
-    /**
-     * Send a response record to the endpoint.
-     * On failure, store in localStorage for retry.
-     */
-    async send(data) {
-        // Always save to localStorage first as backup
+    send(data) {
         this._saveLocal(data);
 
         if (!this.endpoint || this.endpoint.includes('TO_BE_CONFIGURED')) {
@@ -23,25 +23,21 @@ const DataCollector = {
         }
 
         try {
-            const response = await fetch(this.endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            // Mark as sent
-            this._markSent(data);
-            // Try sending any pending failed requests
-            this._retryPending();
+            const blob = new Blob([JSON.stringify(data)], { type: 'text/plain' });
+            const queued = navigator.sendBeacon(this.endpoint, blob);
+            if (queued) {
+                this._markSent(data);
+                this._retryPending();
+            } else {
+                console.warn('[DataCollector] sendBeacon returned false, stored for retry');
+                this._storePending(data);
+            }
         } catch (e) {
             console.warn('[DataCollector] Send failed, stored for retry:', e.message);
             this._storePending(data);
         }
     },
 
-    /**
-     * Save data to localStorage backup (keyed by participant + stimulus + type).
-     */
     _saveLocal(data) {
         const key = `response_${data.participant_id}_${data.stimulus_id || 'meta'}_${data.type || 'unknown'}`;
         localStorage.setItem(key, JSON.stringify(data));
@@ -57,12 +53,8 @@ const DataCollector = {
         }
     },
 
-    /**
-     * Store a failed request for later retry.
-     */
     _storePending(data) {
         const pending = JSON.parse(localStorage.getItem('pending_requests') || '[]');
-        // Avoid duplicates
         const key = `${data.participant_id}_${data.stimulus_id}_${data.type}`;
         const exists = pending.some(p =>
             `${p.participant_id}_${p.stimulus_id}_${p.type}` === key
@@ -73,25 +65,19 @@ const DataCollector = {
         }
     },
 
-    /**
-     * Retry sending any pending failed requests.
-     */
-    async _retryPending() {
+    _retryPending() {
         const pending = JSON.parse(localStorage.getItem('pending_requests') || '[]');
         if (pending.length === 0) return;
 
         const remaining = [];
         for (const data of pending) {
             try {
-                const response = await fetch(this.endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                if (!response.ok) {
-                    remaining.push(data);
-                } else {
+                const blob = new Blob([JSON.stringify(data)], { type: 'text/plain' });
+                const queued = navigator.sendBeacon(this.endpoint, blob);
+                if (queued) {
                     this._markSent(data);
+                } else {
+                    remaining.push(data);
                 }
             } catch (e) {
                 remaining.push(data);
@@ -100,9 +86,6 @@ const DataCollector = {
         localStorage.setItem('pending_requests', JSON.stringify(remaining));
     },
 
-    /**
-     * Get all locally stored responses (for debugging).
-     */
     getAllLocal(participantId) {
         const results = [];
         for (let i = 0; i < localStorage.length; i++) {

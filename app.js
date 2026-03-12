@@ -44,11 +44,9 @@ async function init() {
 
     DataCollector.init(SHEETS_ENDPOINT);
 
-    // Get Prolific PID from URL
     const params = new URLSearchParams(window.location.search);
     participantId = params.get('PROLIFIC_PID') || 'debug_' + Date.now();
 
-    // Check localStorage for existing assignment
     const saved = localStorage.getItem(`study_assignment_${participantId}`);
     if (saved) {
         const data = JSON.parse(saved);
@@ -63,7 +61,6 @@ async function init() {
         saveState();
     }
 
-    // Build stimuli presentation order
     const setKey = `set${assignedSet}`;
     const setStimuli = config.sets[setKey];
     const actualLSRow = config.latin_square_selected_rows[latinSquareRow];
@@ -254,7 +251,6 @@ function renderStimulusPage(container, page) {
     const stimulus = config.stimuli[stimulusId];
 
     if (isPageA) {
-        // Initialize record for this stimulus
         currentStimulusRecord = {
             participant_id: participantId,
             set: assignedSet,
@@ -277,32 +273,23 @@ function renderStimulusPage(container, page) {
 function renderOpenPage(container, stimulus, isTraining) {
     let videoPlayed = false;
 
-    // Context
     const ctx = el('p', 'You are telling a story based on the elements you see in this scene.', 'context-line');
-
-    // Utterance
     const uttLabel = el('p', 'Here is what you just said:', 'utterance-label');
     const uttBlock = document.createElement('div');
     uttBlock.className = 'utterance-block';
     uttBlock.appendChild(el('p', stimulus.utterance, 'utterance-text'));
 
-    // System response label
     const respLabel = el('p', 'Here is how the system responds:', 'context-line');
-
-    // Video
     const videoContainer = createVideoPlayer(VIDEO_BASE_URL + stimulus.video, () => {
         videoPlayed = true;
     });
 
-    // Question
     const question = el('p', 'What would you say next?', 'question-text');
 
-    // Textarea
     const textarea = document.createElement('textarea');
     textarea.className = 'response-textarea';
     textarea.placeholder = 'Type your response here...';
 
-    // Next button
     const btn = document.createElement('button');
     btn.className = 'btn-next';
     btn.textContent = 'Next';
@@ -317,11 +304,7 @@ function renderOpenPage(container, stimulus, isTraining) {
             currentStimulusRecord.open_response = textarea.value.trim();
             currentStimulusRecord.open_response_time_ms = Date.now() - pageStartTime;
             currentStimulusRecord.video_played_page_a = videoPlayed;
-
-            DataCollector.send({
-                ...currentStimulusRecord,
-                type: 'open_response'
-            });
+            DataCollector.send({ ...currentStimulusRecord, type: 'open_response' });
         }
         nextPage();
     });
@@ -351,27 +334,19 @@ function renderClosedPage(container, stimulus, isTraining) {
     let videoPlayed = false;
     let selectedAnswer = null;
 
-    // Context
     const ctx = el('p', 'You are telling a story based on the elements you see in this scene.', 'context-line');
-
-    // Utterance
     const uttLabel = el('p', 'Here is what you just said:', 'utterance-label');
     const uttBlock = document.createElement('div');
     uttBlock.className = 'utterance-block';
     uttBlock.appendChild(el('p', stimulus.utterance, 'utterance-text'));
 
-    // System response label
     const respLabel = el('p', 'Here is how the system responds:', 'context-line');
-
-    // Video
     const videoContainer = createVideoPlayer(VIDEO_BASE_URL + stimulus.video, () => {
         videoPlayed = true;
     });
 
-    // Question
     const question = el('p', 'Which of the following best describes what this animation communicates?', 'question-text');
 
-    // Radio buttons: shuffle first 3, keep last 2 fixed
     const first3 = shuffleArray([...stimulus.answers.slice(0, 3)]);
     const last2 = stimulus.answers.slice(3);
     const orderedAnswers = [...first3, ...last2];
@@ -379,7 +354,6 @@ function renderClosedPage(container, stimulus, isTraining) {
     const radioGroup = document.createElement('div');
     radioGroup.className = 'radio-group';
 
-    // Next button
     const btn = document.createElement('button');
     btn.className = 'btn-next';
     btn.textContent = 'Next';
@@ -402,19 +376,12 @@ function renderClosedPage(container, stimulus, isTraining) {
         radioGroup.appendChild(label);
 
         radio.addEventListener('change', () => {
-            // Update visual selection
             radioGroup.querySelectorAll('.radio-option').forEach(l => l.classList.remove('selected'));
             label.classList.add('selected');
-
-            selectedAnswer = {
-                index: idx,
-                text: answer.text,
-                correct: answer.correct
-            };
+            selectedAnswer = { index: idx, text: answer.text, correct: answer.correct };
             btn.disabled = false;
         });
 
-        // Make entire label clickable
         label.addEventListener('click', (e) => {
             if (e.target !== radio) {
                 radio.checked = true;
@@ -429,11 +396,7 @@ function renderClosedPage(container, stimulus, isTraining) {
             currentStimulusRecord.closed_response_correct = selectedAnswer.correct;
             currentStimulusRecord.closed_response_time_ms = Date.now() - pageStartTime;
             currentStimulusRecord.video_played_page_b = videoPlayed;
-
-            DataCollector.send({
-                ...currentStimulusRecord,
-                type: 'complete'
-            });
+            DataCollector.send({ ...currentStimulusRecord, type: 'complete' });
         }
         nextPage();
     });
@@ -477,7 +440,6 @@ function renderEnd(container) {
 
     container.append(title, text, btnRow);
 
-    // Send completion event
     DataCollector.send({
         participant_id: participantId,
         set: assignedSet,
@@ -490,10 +452,6 @@ function renderEnd(container) {
 // ============================================================
 // HELPERS
 // ============================================================
-
-/**
- * Create a simple element with text and optional class.
- */
 function el(tag, text, className) {
     const e = document.createElement(tag);
     if (text) e.textContent = text;
@@ -501,10 +459,6 @@ function el(tag, text, className) {
     return e;
 }
 
-/**
- * Create a video player with custom play overlay.
- * Plays once, then stays on last frame.
- */
 function createVideoPlayer(videoUrl, onPlayed) {
     const wrapper = document.createElement('div');
     wrapper.className = 'video-container';
@@ -527,7 +481,6 @@ function createVideoPlayer(videoUrl, onPlayed) {
         if (onPlayed) onPlayed();
     });
 
-    // Also mark as played if user somehow gets to the end
     video.addEventListener('pause', () => {
         if (video.currentTime >= video.duration - 0.1) {
             if (onPlayed) onPlayed();
@@ -539,9 +492,6 @@ function createVideoPlayer(videoUrl, onPlayed) {
     return wrapper;
 }
 
-/**
- * Fisher-Yates shuffle (non-mutating).
- */
 function shuffleArray(arr) {
     const a = [...arr];
     for (let i = a.length - 1; i > 0; i--) {
